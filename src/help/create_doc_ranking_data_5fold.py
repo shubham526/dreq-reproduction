@@ -39,7 +39,7 @@ import torch
 # Both scripts must live in the same directory.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MAKE_DATA_SCRIPT = os.path.join(SCRIPT_DIR, "make_doc_ranking_data_dreq.py")
+MAKE_DATA_SCRIPT = os.path.join(SCRIPT_DIR, "make_doc_ranking_data.py")
 
 if not os.path.exists(MAKE_DATA_SCRIPT):
     print(f"[ERROR] make_doc_ranking_data_dreq.py not found at {MAKE_DATA_SCRIPT}")
