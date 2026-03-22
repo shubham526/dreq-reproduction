@@ -1,0 +1,41 @@
+# PyCharm / JetBrains
+.idea/
+*.iws
+*.iml
+*.ipr
+cmake-build-*/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv
+venv/
+ENV/
+
+# QDER Project Specifics - Heavy Data
+# We ignore the raw and processed datasets to keep the repo clean
+*.jsonl
+*.jsonl.gz
+*.tsv
+*.run
+*.txt
+!requirements.txt
+
+# Model Checkpoints and Logs
+*.bin
+*.pth
+*.ckpt
+checkpoints/
+save/
+logs/
+
+# Entity Embeddings (e.g., Wikipedia2Vec)
+*.bin
+*.pkl
+
+# OS specific
+.DS_Store
+Thumbs.db
