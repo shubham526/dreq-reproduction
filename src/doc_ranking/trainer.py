@@ -32,7 +32,8 @@ class Trainer:
 
         # GradScaler only needed for fp16 — bf16 has wide enough dynamic range
         # and doesn't need loss scaling. Scaler is a no-op when enabled=False.
-        self._scaler = torch.cuda.amp.GradScaler(
+        self._scaler = torch.amp.GradScaler(
+            'cuda',
             enabled=(use_amp and amp_dtype == torch.float16)
         )
 
