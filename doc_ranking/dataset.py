@@ -82,7 +82,7 @@ class DocRankingDataset(Dataset):
         """
         Convert a doc_ent_emb value to a [ENTITY_EMB_DIM] float32 tensor.
         DREQ stores either a [300] list (entity overlap found) or [] (no overlap).
-        Empty list -> zero vector so downstream model receives a fixed-shape input.
+        Empty list -> zero vector so downstream doc_ranking receives a fixed-shape input.
         """
         if len(emb_list) == 0:
             return torch.zeros(ENTITY_EMB_DIM, dtype=torch.float32)

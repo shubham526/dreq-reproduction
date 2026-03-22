@@ -412,7 +412,7 @@ def main():
     parser.add_argument("--entity-run", help="Entity run file.", required=True, type=str)
     parser.add_argument("--embeddings", help="Wikipedia2Vec entity embeddings file.", required=True, type=str)
     parser.add_argument('--max-len', help='Maximum length for truncation/padding. Default: 512', default=512, type=int)
-    parser.add_argument('--encoder', help='Name of model (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). '
+    parser.add_argument('--encoder', help='Name of doc_ranking (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). '
                                           'Default: bert.', type=str, default='bert')
     parser.add_argument('--train', help='Is this train data? Default: False.', action='store_true')
     parser.add_argument('--balance', help='Should the data be balanced? Default: False.', action='store_true')

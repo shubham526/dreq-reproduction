@@ -114,12 +114,12 @@ def train(model, trainer, epochs, metric, qrels, valid_loader, save_path, save,
 
 
 def main():
-    parser = argparse.ArgumentParser("Train DREQ document ranking model.")
+    parser = argparse.ArgumentParser("Train DREQ document ranking doc_ranking.")
     parser.add_argument('--train',          help='Training data file.',          required=True,  type=str)
     parser.add_argument('--dev',            help='Validation data file.',         required=True,  type=str)
     parser.add_argument('--qrels',          help='Qrels file in TREC format.',    required=True,  type=str)
     parser.add_argument('--save-dir',       help='Directory to save outputs.',    required=True,  type=str)
-    parser.add_argument('--save',           help='Checkpoint filename.',          default='model.bin',  type=str)
+    parser.add_argument('--save',           help='Checkpoint filename.',          default='doc_ranking.bin',  type=str)
     parser.add_argument('--checkpoint',     help='Checkpoint to resume from.',    default=None,         type=str)
     parser.add_argument('--run',            help='Validation run filename.',      default='dev.run',    type=str)
     parser.add_argument('--text-enc',
@@ -207,7 +207,7 @@ def main():
 
     # Save run config
     config = {
-        'max_len': args.max_len, 'model': pretrain, 'metric': args.metric,
+        'max_len': args.max_len, 'doc_ranking': pretrain, 'metric': args.metric,
         'epochs': args.epoch, 'batch_size': args.batch_size,
         'learning_rate': args.learning_rate, 'warmup_steps': args.n_warmup_steps,
         'dropout': args.dropout, 'patience': args.patience,

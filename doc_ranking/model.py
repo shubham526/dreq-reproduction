@@ -78,7 +78,7 @@ class DocEmbedding(nn.Module):
 
 class DocRankingModel(nn.Module):
     """
-    DREQ scoring model.
+    DREQ scoring doc_ranking.
 
     Query and document are each projected to PROJ_DIM (100-d).
     Five interaction features are computed (identity, sum, difference, product)

@@ -1,7 +1,7 @@
 """
 create_doc_ranking_data_5fold_dreq.py
 
-Creates fold-wise doc ranking data for 5-fold CV using the DREQ model.
+Creates fold-wise doc ranking data for 5-fold CV using the DREQ doc_ranking.
 Loads shared inputs (docs, embeddings, encoder) ONCE and reuses them
 across all 15 splits (5 folds x 3 splits).
 
@@ -203,7 +203,7 @@ def main():
 
     # Encoder args (loaded once, shared across all folds)
     parser.add_argument("--encoder",
-                        help="Encoder model name (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). "
+                        help="Encoder doc_ranking name (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). "
                              "Default: bert.",
                         choices=list(MODEL_MAP.keys()), default="bert", type=str)
     parser.add_argument("--max-len",

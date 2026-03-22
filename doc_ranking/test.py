@@ -9,7 +9,7 @@ from transformers import AutoTokenizer
 
 
 def main():
-    parser = argparse.ArgumentParser("Test DREQ document ranking model.")
+    parser = argparse.ArgumentParser("Test DREQ document ranking doc_ranking.")
     parser.add_argument('--test',        help='Test data file.',                         required=True, type=str)
     parser.add_argument('--checkpoint',  help='Model checkpoint to load.',               required=True, type=str)
     parser.add_argument('--save',        help='Output run file in TREC format.',         required=True, type=str)
