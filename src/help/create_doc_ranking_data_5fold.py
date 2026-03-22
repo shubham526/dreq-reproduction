@@ -47,7 +47,7 @@ if not os.path.exists(MAKE_DATA_SCRIPT):
     sys.exit(1)
 
 sys.path.insert(0, SCRIPT_DIR)
-from make_doc_ranking_data_dreq import (
+from make_doc_ranking_data import (
     Encoder,
     load_docs,
     load_embeddings,
