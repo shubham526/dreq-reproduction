@@ -1,22 +1,22 @@
 """
 create_doc_ranking_data_5fold_dreq.py
 
-Creates fold-wise doc ranking data for 5-fold CV using the DREQ doc_ranking.
+Creates fold-wise doc ranking data for 5-fold CV using the DREQ model.
 Loads shared inputs (docs, embeddings, encoder) ONCE and reuses them
 across all 15 splits (5 folds x 3 splits).
 
 Key differences from the QDER 5-fold script:
-  - Imports from make_doc_ranking_data_dreq.py (not the QDER script)
+  - Imports from make_doc_ranking_data.py (not the QDER script)
   - Loads a neural encoder (BERT etc.) once and passes it to create_data
   - No entity_names or k args (DREQ sums entity embeddings, no query expansion)
-  - Expects pre-chunked docs (run preprocess_docs.py first)
+  - Expects precomputed doc embeddings (run precompute_chunk_embs.py first)
 
 Usage:
     python create_doc_ranking_data_5fold_dreq.py \
         --fold-splits        /path/to/fold_splits \
         --entity-run-base    /path/to/entity_run_splits_dir \
         --output-base        /path/to/output_dir \
-        --docs               /path/to/docs_chunked.jsonl \
+        --doc-embs           /path/to/precomputed/bert_spacy10s5 \
         --embeddings         /path/to/mmead_entities.wikipedia2vec.jsonl.gz \
         --doc-run-type       bm25 \
         --encoder            bert \
@@ -32,23 +32,21 @@ import sys
 import time
 
 import numpy as np
-import torch
 
 # ---------------------------------------------------------------------------
-# Import shared logic from make_doc_ranking_data_dreq.py.
+# Import shared logic from make_doc_ranking_data.py.
 # Both scripts must live in the same directory.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MAKE_DATA_SCRIPT = os.path.join(SCRIPT_DIR, "make_doc_ranking_data.py")
 
 if not os.path.exists(MAKE_DATA_SCRIPT):
-    print(f"[ERROR] make_doc_ranking_data_dreq.py not found at {MAKE_DATA_SCRIPT}")
-    print("  Place this script in the same directory as make_doc_ranking_data_dreq.py.")
+    print(f"[ERROR] make_doc_ranking_data.py not found at {MAKE_DATA_SCRIPT}")
+    print("  Place this script in the same directory as make_doc_ranking_data.py.")
     sys.exit(1)
 
 sys.path.insert(0, SCRIPT_DIR)
 from make_doc_ranking_data import (
-    Encoder,
     load_docs,
     load_embeddings,
     load_queries,
@@ -57,18 +55,6 @@ from make_doc_ranking_data import (
     create_data,
     WEIGHTING_SCHEMES,
 )
-
-MODEL_MAP = {
-    'bert':      'bert-base-uncased',
-    'distilbert': 'distilbert-base-uncased',
-    'roberta':   'roberta-base',
-    'deberta':   'microsoft/deberta-base',
-    'ernie':     'nghuyong/ernie-2.0-base-en',
-    'electra':   'google/electra-small-discriminator',
-    'conv-bert': 'YituTech/conv-bert-base',
-    't5':        't5-base',
-}
-
 
 # =============================================================================
 #  HELPERS
@@ -104,7 +90,8 @@ def preflight_check(args):
     """Verify all required files and directories exist before starting."""
     log("Pre-flight checks")
 
-    check_file(args.docs)
+    # doc_embs is a directory, not a file — check_dir handles it
+    check_dir(args.doc_embs)
     check_file(args.embeddings)
     check_dir(args.fold_splits)
     check_dir(args.entity_run_base)
@@ -135,14 +122,12 @@ def preflight_check(args):
         check_dir(os.path.join(args.output_base, fold_dir))
 
     print("  All input files found.")
-    print(f"  docs               : {args.docs}")
+    print(f"  doc_embs           : {args.doc_embs}")
     print(f"  embeddings         : {args.embeddings}")
     print(f"  fold_splits        : {args.fold_splits}")
     print(f"  entity_runs        : {args.entity_run_base}")
     print(f"  output_base        : {args.output_base}")
     print(f"  doc_run_type       : {args.doc_run_type}")
-    print(f"  encoder            : {args.encoder}")
-    print(f"  max_len            : {args.max_len}")
     print(f"  folds              : {args.folds}")
     print(f"  splits             : {args.splits}")
     print(f"  balance            : {args.balance}")
@@ -195,26 +180,12 @@ def main():
     )
 
     # Shared inputs (loaded once)
-    parser.add_argument("--docs", required=True,
-                        help="Pre-chunked docs JSONL (run preprocess_docs.py first). "
-                             "Each line must have: doc_id, entities, text, chunks.")
+    parser.add_argument("--doc-embs", required=True,
+                        help="Directory produced by precompute_chunk_embs.py "
+                             "(contains doc_embs.npy, doc_meta.jsonl.gz, doc_id_to_row.json).")
     parser.add_argument("--embeddings", required=True,
                         help="Wikipedia2Vec entity embeddings (.jsonl.gz)")
 
-    # Encoder args (loaded once, shared across all folds)
-    parser.add_argument("--encoder",
-                        help="Encoder doc_ranking name (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). "
-                             "Default: bert.",
-                        choices=list(MODEL_MAP.keys()), default="bert", type=str)
-    parser.add_argument("--max-len",
-                        help="Maximum token length for truncation/padding. Default: 512",
-                        default=512, type=int)
-    parser.add_argument("--cuda",
-                        help="CUDA device number. Default: 0.",
-                        type=int, default=0)
-    parser.add_argument("--use-cuda",
-                        help="Use CUDA if available. Default: False.",
-                        action="store_true")
 
     # Directory structure
     parser.add_argument("--fold-splits", required=True,
@@ -285,29 +256,17 @@ def main():
     # -------------------------------------------------------------------------
     # Load shared inputs ONCE
     # -------------------------------------------------------------------------
-    log("Loading shared inputs (docs, embeddings, encoder) — done once for all folds")
+    log("Loading shared inputs (docs + embeddings) — done once for all folds")
 
     t0 = time.time()
-    print("  Loading documents (pre-chunked)...")
-    docs = load_docs(args.docs)
+    print("  Loading precomputed document embeddings...")
+    docs = load_docs(args.doc_embs)
     print(f"  Loaded {len(docs):,} documents in {fmt_time(time.time() - t0)}")
 
     t0 = time.time()
-    print("  Loading embeddings...")
+    print("  Loading entity embeddings...")
     embeddings = load_embeddings(args.embeddings)
     print(f"  Loaded {len(embeddings):,} embeddings in {fmt_time(time.time() - t0)}")
-
-    t0 = time.time()
-    print(f"  Loading encoder ({args.encoder})...")
-    from transformers import AutoTokenizer
-    cuda_device = f"cuda:{args.cuda}"
-    device = torch.device(cuda_device if torch.cuda.is_available() and args.use_cuda else "cpu")
-    pretrain = MODEL_MAP[args.encoder]
-    tokenizer = AutoTokenizer.from_pretrained(pretrain, model_max_length=args.max_len)
-    encoder = Encoder(pretrained=pretrain)
-    encoder.to(device)
-    encoder.eval()
-    print(f"  Encoder loaded in {fmt_time(time.time() - t0)} — device: {device}")
 
     # -------------------------------------------------------------------------
     # Process each fold
@@ -370,10 +329,6 @@ def main():
                 train=is_train,
                 balance=args.balance,
                 save=output_file,
-                encoder=encoder,
-                tokenizer=tokenizer,
-                max_len=args.max_len,
-                device=device,
                 filter_no_entities=args.filter_no_entities,
                 entity_weighting=args.entity_weighting,
                 train_format=args.train_format,
@@ -397,8 +352,7 @@ def main():
     # -------------------------------------------------------------------------
     total_elapsed = time.time() - total_start
     log("ALL FOLDS COMPLETE")
-    print(f"  Encoder            : {args.encoder} ({pretrain})")
-    print(f"  Device             : {device}")
+    print(f"  Doc embs dir       : {args.doc_embs}")
     print(f"  Doc run type       : {args.doc_run_type}")
     print(f"  Entity weighting   : {args.entity_weighting}")
     print(f"  Train format       : {args.train_format}")
