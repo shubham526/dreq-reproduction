@@ -78,7 +78,7 @@ class DocEmbedding(nn.Module):
 
 class DocRankingModel(nn.Module):
     """
-    DREQ scoring doc_ranking.
+    DREQ scoring model.
 
     Query and document are each projected to PROJ_DIM (100-d).
     Five interaction features are computed (identity, sum, difference, product)
@@ -90,6 +90,7 @@ class DocRankingModel(nn.Module):
 
     def __init__(self, pretrained: str, dropout: float = 0.1):
         super().__init__()
+        self._dropout_rate = dropout          # stored for checkpoint config serialisation
         self.query_encoder = QueryEmbedding(pretrained=pretrained, dropout=dropout)
         self.doc_encoder   = DocEmbedding(dropout=dropout)
         self.dropout       = nn.Dropout(dropout)
