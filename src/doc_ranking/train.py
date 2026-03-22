@@ -18,8 +18,8 @@ from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 
 
 def train(model, trainer, epochs, metric, qrels, valid_loader, save_path, save,
-          run_file, eval_every, device, patience, use_amp, amp_dtype, start_epoch=0,
-          best_metric_so_far=0.0):
+          run_file, eval_every, device, use_amp, amp_dtype, start_epoch=0,
+          best_metric_so_far=0.0, patience=5):
     best_valid_metric = best_metric_so_far
     epochs_without_improvement = 0
     history = {'train_loss': [], 'val_metric': [], 'epoch': []}
@@ -77,6 +77,14 @@ def train(model, trainer, epochs, metric, qrels, valid_loader, save_path, save,
                     'scheduler_state_dict': trainer.scheduler.state_dict(),
                     'epoch':                epoch + 1,
                     'best_metric':          best_valid_metric,
+                    'config': {
+                        'learning_rate': trainer.optimizer.param_groups[0]['lr'],
+                        'metric':        metric,
+                        'pretrained':    (model.query_encoder.encoder.pretrained
+                                         if hasattr(model.query_encoder.encoder, 'pretrained')
+                                         else None),
+                        'dropout':       getattr(model, '_dropout_rate', None),
+                    },
                 }
                 # Save named checkpoint + overwrite the canonical best checkpoint
                 named_path = os.path.join(save_path, f'best_model_epoch_{epoch + 1:03d}.bin')
@@ -84,8 +92,10 @@ def train(model, trainer, epochs, metric, qrels, valid_loader, save_path, save,
                 torch.save(checkpoint, os.path.join(save_path, save))
                 shutil.copy(run_path, os.path.join(save_path, f'best_{run_file}'))
 
-                print(f'New best {metric.upper()}: {best_valid_metric:.4f} (↑ {improvement:.4f})')
-                print(f'Saved checkpoint: {named_path}')
+                print(f'\n✓ New Best {metric.upper()}: {best_valid_metric:.4f} (↑ {improvement:.4f})')
+                print(f'  Saved checkpoint: {named_path}')
+                print(f'  Saved standard checkpoint: {save}')
+                print(f'  Saved best run file: best_{run_file}')
             else:
                 epochs_without_improvement += 1
                 direction = '↓' if improvement < 0 else '='
@@ -110,16 +120,31 @@ def train(model, trainer, epochs, metric, qrels, valid_loader, save_path, save,
         json.dump(history, f, indent=2)
     print(f'\nTraining history saved to {history_path}')
 
+    print(f'\n{"=" * 60}')
+    print('Saved Files Summary')
+    print(f'{"=" * 60}')
+    print(f'Run files saved ({len(history["epoch"])} total):')
+    for ep in history['epoch']:
+        print(f'  - epoch_{ep:03d}_{run_file}')
+    print(f'\nBest model files:')
+    print(f'  - {save} (best model with full state, easy to load)')
+    if history['best_epoch']:
+        print(f'  - best_model_epoch_{history["best_epoch"]:03d}.bin (with epoch number)')
+    print(f'  - best_{run_file} (best run file)')
+    print(f'\nTraining history:')
+    print(f'  - training_history.json')
+    print(f'{"=" * 60}')
+
     return best_valid_metric
 
 
 def main():
-    parser = argparse.ArgumentParser("Train DREQ document ranking doc_ranking.")
+    parser = argparse.ArgumentParser("Train DREQ document ranking model.")
     parser.add_argument('--train',          help='Training data file.',          required=True,  type=str)
     parser.add_argument('--dev',            help='Validation data file.',         required=True,  type=str)
     parser.add_argument('--qrels',          help='Qrels file in TREC format.',    required=True,  type=str)
     parser.add_argument('--save-dir',       help='Directory to save outputs.',    required=True,  type=str)
-    parser.add_argument('--save',           help='Checkpoint filename.',          default='doc_ranking.bin',  type=str)
+    parser.add_argument('--save',           help='Checkpoint filename.',          default='model.bin',  type=str)
     parser.add_argument('--checkpoint',     help='Checkpoint to resume from.',    default=None,         type=str)
     parser.add_argument('--run',            help='Validation run filename.',      default='dev.run',    type=str)
     parser.add_argument('--text-enc',
@@ -207,7 +232,7 @@ def main():
 
     # Save run config
     config = {
-        'max_len': args.max_len, 'doc_ranking': pretrain, 'metric': args.metric,
+        'max_len': args.max_len, 'model': pretrain, 'metric': args.metric,
         'epochs': args.epoch, 'batch_size': args.batch_size,
         'learning_rate': args.learning_rate, 'warmup_steps': args.n_warmup_steps,
         'dropout': args.dropout, 'patience': args.patience,
@@ -355,8 +380,8 @@ def main():
         valid_loader=dev_loader, save_path=args.save_dir,
         save=args.save, run_file=args.run,
         eval_every=args.eval_every, device=device,
-        patience=args.patience,
         use_amp=use_amp, amp_dtype=amp_dtype,
+        patience=args.patience,
         start_epoch=start_epoch, best_metric_so_far=best_metric_so_far,
     )
 
