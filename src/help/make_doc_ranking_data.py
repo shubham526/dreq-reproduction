@@ -196,8 +196,8 @@ def get_entity_centric_doc_embedding(doc_entities, query_entities, query_entity_
 
 
 def create_input(text, tokenizer, max_len):
-    encoded_dict = tokenizer.encode_plus(
-        text=text,
+    encoded_dict = tokenizer(
+        text,
         add_special_tokens=True,
         max_length=max_len,
         padding='max_length',
@@ -206,7 +206,13 @@ def create_input(text, tokenizer, max_len):
         return_token_type_ids=True,
         return_tensors='pt'
     )
-    return encoded_dict['input_ids'], encoded_dict['attention_mask'], encoded_dict['token_type_ids']
+    input_ids      = encoded_dict['input_ids']
+    attention_mask = encoded_dict['attention_mask']
+    # Fallback for tokenizers that omit token_type_ids (e.g. RoBERTa)
+    token_type_ids = encoded_dict.get('token_type_ids')
+    if token_type_ids is None:
+        token_type_ids = torch.zeros_like(input_ids)
+    return input_ids, attention_mask, token_type_ids
 
 
 def get_doc_chunk_embeddings(doc_chunks, encoder, tokenizer, max_len, device):
@@ -412,7 +418,7 @@ def main():
     parser.add_argument("--entity-run", help="Entity run file.", required=True, type=str)
     parser.add_argument("--embeddings", help="Wikipedia2Vec entity embeddings file.", required=True, type=str)
     parser.add_argument('--max-len', help='Maximum length for truncation/padding. Default: 512', default=512, type=int)
-    parser.add_argument('--encoder', help='Name of doc_ranking (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). '
+    parser.add_argument('--encoder', help='Name of model (bert|distilbert|roberta|deberta|ernie|electra|conv-bert|t5). '
                                           'Default: bert.', type=str, default='bert')
     parser.add_argument('--train', help='Is this train data? Default: False.', action='store_true')
     parser.add_argument('--balance', help='Should the data be balanced? Default: False.', action='store_true')
