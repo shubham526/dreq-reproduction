@@ -7,7 +7,6 @@ import collections
 from tqdm import tqdm
 import gzip
 import random
-from typing import Dict
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoConfig, AutoModel, DistilBertModel, T5EncoderModel
@@ -159,87 +158,6 @@ def weight_entity_scores(entity_scores, scheme):
     raise ValueError(f"Unknown weighting scheme: '{scheme}'. Choose from: {WEIGHTING_SCHEMES}")
 
 
-# =============================================================================
-#  DOCUMENT SCORE NORMALIZATION
-# =============================================================================
-
-def normalize_doc_scores_per_query(
-    doc_scores: Dict[str, float],
-    norm: str = "none",
-    eps: float = 1e-8,
-    warn_on_fallback: bool = True,
-    query_id: str = None,
-) -> Dict[str, float]:
-    """
-    Normalize document scores within a query.
-
-    Args:
-        doc_scores: {doc_id: score}
-        norm: one of {'none', 'zscore', 'rank', 'log1p_zscore'}
-        eps: small constant for numerical stability
-        warn_on_fallback: if True, prints a warning when log1p_zscore falls back
-        query_id: optional query id for logging context
-
-    Returns:
-        {doc_id: normalized_score}
-
-    Notes:
-        - 'log1p_zscore' is recommended for nonnegative, skewed scores like BM25:
-              zscore(log1p(score))
-        - If any score is negative, 'log1p_zscore' falls back to plain z-score
-          for that query (safe handling for non-BM25 score sources).
-    """
-    if norm == "none" or not doc_scores:
-        return dict(doc_scores)
-
-    items = list(doc_scores.items())
-    values = [float(s) for _, s in items]
-
-    if norm == "rank":
-        sorted_items = sorted(items, key=lambda x: x[1], reverse=True)
-        n = len(sorted_items)
-        if n == 1:
-            return {sorted_items[0][0]: 1.0}
-        return {
-            doc_id: 1.0 - (rank / (n - 1))
-            for rank, (doc_id, _) in enumerate(sorted_items)
-        }
-
-    if norm == "zscore":
-        transformed = values
-    elif norm == "log1p_zscore":
-        has_negative = any(v < 0 for v in values)
-        if has_negative:
-            if warn_on_fallback:
-                qmsg = f" for qid={query_id}" if query_id is not None else ""
-                print(
-                    f"[make_doc_ranking_data] Warning: negative scores detected{qmsg}; "
-                    "falling back from log1p_zscore to zscore for this query."
-                )
-            transformed = values
-        else:
-            transformed = [math.log1p(v) for v in values]
-    else:
-        raise ValueError(
-            f"Unknown doc score normalization: {norm}. "
-            "Expected one of {'none','zscore','rank','log1p_zscore'}"
-        )
-
-    mean_val = sum(transformed) / len(transformed)
-    if len(transformed) == 1:
-        std_val = 0.0
-    else:
-        var = sum((x - mean_val) ** 2 for x in transformed) / len(transformed)
-        std_val = math.sqrt(var)
-
-    if std_val < eps:
-        return {doc_id: 0.0 for doc_id, _ in items}
-
-    return {
-        doc_id: (x - mean_val) / (std_val + eps)
-        for (doc_id, _), x in zip(items, transformed)
-    }
-
 
 # =============================================================================
 #  EMBEDDING HELPERS
@@ -310,14 +228,14 @@ def get_doc_chunk_embeddings(doc_chunks, encoder, tokenizer, max_len, device):
 # =============================================================================
 
 def get_docs(docs, qrels, query_entities, query_entity_embeddings,
-             positive, query_docs, doc_scores,
+             positive, query_docs, doc_run,
              encoder, tokenizer, max_len, device,
              filter_no_entities=False):
     """Collect positive or negative documents with their DREQ embeddings."""
     d = {}
 
     for doc_id in query_docs:
-        if doc_id in docs and doc_id in doc_scores:
+        if doc_id in docs and doc_id in doc_run:
             is_positive = doc_id in qrels and qrels[doc_id] >= 1
 
             if is_positive == positive:
@@ -337,9 +255,8 @@ def get_docs(docs, qrels, query_entities, query_entity_embeddings,
                     doc_chunks, encoder, tokenizer, max_len, device
                 )
 
-                doc_score = doc_scores[doc_id]
-                # Store None as empty list for consistent JSON serialisation
-                d[doc_id] = (doc_chunk_embeddings, doc_score, doc_ent_emb if doc_ent_emb is not None else [])
+                # Store None as empty list — dataset.py substitutes zero vector at load time
+                d[doc_id] = (doc_chunk_embeddings, doc_ent_emb if doc_ent_emb is not None else [])
 
     return d
 
@@ -350,13 +267,12 @@ def get_docs(docs, qrels, query_entities, query_entity_embeddings,
 
 def make_data_strings(query, query_id, docs, label, save):
     """Serialise examples to JSONL, one line per (query, doc) pair (POINTWISE)."""
-    for doc_id, (doc_chunk_embeddings, doc_score, doc_ent_emb) in docs.items():
+    for doc_id, (doc_chunk_embeddings, doc_ent_emb) in docs.items():
         data_line = json.dumps({
             'query': query,
             'query_id': query_id,
             'doc_id': doc_id,
             'doc_chunk_embeddings': doc_chunk_embeddings,
-            'doc_score': doc_score,
             'doc_ent_emb': doc_ent_emb,
             'label': label
         })
@@ -368,13 +284,13 @@ def make_pairwise_data_strings(query, query_id, pos_docs, neg_docs, num_negs, sa
     neg_items = list(neg_docs.items())
     pairs_added = 0
 
-    for pos_id, (pos_chunk_emb, pos_score, pos_ent_emb) in pos_docs.items():
+    for pos_id, (pos_chunk_emb, pos_ent_emb) in pos_docs.items():
         if not neg_items:
             continue
 
         sampled_negs = random.sample(neg_items, min(num_negs, len(neg_items)))
 
-        for neg_id, (neg_chunk_emb, neg_score, neg_ent_emb) in sampled_negs:
+        for neg_id, (neg_chunk_emb, neg_ent_emb) in sampled_negs:
             data_line = json.dumps({
                 'query': query,
                 'query_id': query_id,
@@ -382,13 +298,11 @@ def make_pairwise_data_strings(query, query_id, pos_docs, neg_docs, num_negs, sa
                 # Positive document features
                 'pos_doc_id': pos_id,
                 'pos_doc_chunk_embeddings': pos_chunk_emb,
-                'pos_doc_score': pos_score,
                 'pos_doc_ent_emb': pos_ent_emb,
 
                 # Negative document features
                 'neg_doc_id': neg_id,
                 'neg_doc_chunk_embeddings': neg_chunk_emb,
-                'neg_doc_score': neg_score,
                 'neg_doc_ent_emb': neg_ent_emb,
             })
             write_to_file(data_line, save)
@@ -404,7 +318,7 @@ def make_pairwise_data_strings(query, query_id, pos_docs, neg_docs, num_negs, sa
 def create_data(queries, docs, doc_qrels, doc_run, entity_run, entity_embeddings,
                 train, balance, save, encoder, tokenizer, max_len, device,
                 filter_no_entities=False, entity_weighting='minmax',
-                train_format='pointwise', negatives_per_pos=1, doc_score_norm='none'):
+                train_format='pointwise', negatives_per_pos=1):
     """Build the training or test JSONL file."""
     stats = {
         'total_queries': 0,
@@ -415,7 +329,6 @@ def create_data(queries, docs, doc_qrels, doc_run, entity_run, entity_embeddings
         'docs_kept_no_entities': 0,
         'entity_weighting': entity_weighting,
         'train_format': train_format if train else 'pointwise (eval is always pointwise)',
-        'doc_score_norm': doc_score_norm,
     }
 
     for query_id, query in tqdm(queries.items(), total=len(queries)):
@@ -426,14 +339,6 @@ def create_data(queries, docs, doc_qrels, doc_run, entity_run, entity_embeddings
 
         query_docs = doc_run[query_id]
         qrels = doc_qrels[query_id]
-
-        # Per-query normalization of document scores
-        query_docs = normalize_doc_scores_per_query(
-            query_docs,
-            norm=doc_score_norm,
-            warn_on_fallback=True,
-            query_id=query_id
-        )
 
         query_entities = weight_entity_scores(entity_run[query_id], scheme=entity_weighting)
 
@@ -449,7 +354,7 @@ def create_data(queries, docs, doc_qrels, doc_run, entity_run, entity_embeddings
             docs=docs, qrels=qrels,
             query_entities=query_entities,
             query_entity_embeddings=query_entity_embeddings,
-            doc_scores=query_docs,
+            doc_run=query_docs,
             encoder=encoder,
             tokenizer=tokenizer, max_len=max_len, device=device,
             filter_no_entities=filter_no_entities,
@@ -468,7 +373,7 @@ def create_data(queries, docs, doc_qrels, doc_run, entity_run, entity_embeddings
             neg_docs = dict(list(neg_docs.items())[:n])
 
         # Accumulate stats on entity overlap
-        for _, doc_score, doc_ent_emb in list(pos_docs.values()) + list(neg_docs.values()):
+        for _, doc_ent_emb in list(pos_docs.values()) + list(neg_docs.values()):
             if not doc_ent_emb:
                 stats['docs_kept_no_entities'] += 1
             else:
@@ -531,14 +436,6 @@ def main():
     parser.add_argument("--entity-weighting",
                         help="How to weight entity scores before scaling embeddings.",
                         choices=WEIGHTING_SCHEMES, default='minmax', type=str)
-    parser.add_argument("--doc-score-norm",
-                        type=str, default="none",
-                        choices=["none", "zscore", "rank", "log1p_zscore"],
-                        help=(
-                            "Per-query normalization for document scores. "
-                            "'log1p_zscore' (recommended for BM25) applies zscore(log1p(score)) "
-                            "for nonneg scores and falls back to zscore if negative scores detected."
-                        ))
     parser.add_argument("--random-seed", help="Random seed for reproducibility. Default: 42", type=int, default=42)
 
     args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
@@ -551,7 +448,6 @@ def main():
     print("=" * 60)
 
     print(f"{'✅ Creating train data...' if args.train else '✅ Creating test data...'}")
-    print(f"[make_doc_ranking_data] doc_score_norm = {args.doc_score_norm}")
 
     if args.train:
         print(f"✅ Training data format: {args.train_format.upper()}")
@@ -560,7 +456,6 @@ def main():
 
     print(f"{'✅ Dataset will be balanced.' if args.balance else '✅ Dataset will be unbalanced.'}")
     print(f"✅ Entity score weighting: {args.entity_weighting}")
-    print(f"✅ Document score normalization: {args.doc_score_norm}")
 
     if args.entity_weighting == 'raw':
         print("⚠️  Using raw scores — only correct if scores are already in [0,1].")
@@ -627,7 +522,6 @@ def main():
         entity_weighting=args.entity_weighting,
         train_format=args.train_format,
         negatives_per_pos=args.negatives_per_pos,
-        doc_score_norm=args.doc_score_norm,
     )
     print("[Done].")
 
