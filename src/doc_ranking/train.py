@@ -283,7 +283,7 @@ def main():
             print(f'Checkpoint not found: {args.checkpoint} — starting from scratch.')
         else:
             try:
-                ckpt = torch.load(args.checkpoint, map_location='cpu')
+                ckpt = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
                 if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
                     model.load_state_dict(ckpt['model_state_dict'])
                     optimizer_state    = ckpt.get('optimizer_state_dict')

@@ -58,7 +58,7 @@ def main():
     # and reconstruct the model exactly as it was trained.
     # -------------------------------------------------------------------------
     print(f'Loading checkpoint from {args.checkpoint}...')
-    raw_ckpt = torch.load(args.checkpoint, map_location='cpu')
+    raw_ckpt = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
 
     ckpt_config = {}
     if isinstance(raw_ckpt, dict) and 'config' in raw_ckpt:

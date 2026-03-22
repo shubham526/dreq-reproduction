@@ -41,7 +41,7 @@ def load_checkpoint(load_path: str, model, device):
     if load_path is None:
         return None
 
-    ckpt = torch.load(load_path, map_location=device)
+    ckpt = torch.load(load_path, map_location=device, weights_only=False)
 
     if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
         model.load_state_dict(ckpt['model_state_dict'])
