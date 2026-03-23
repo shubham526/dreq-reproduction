@@ -6,7 +6,7 @@ Loads shared inputs (docs, embeddings, encoder) ONCE and reuses them
 across all 15 splits (5 folds x 3 splits).
 
 Key differences from the QDER 5-fold script:
-  - Imports from make_doc_ranking_data.py (not the QDER script)
+  - Imports from make_doc_ranking_data_dreq.py (not the QDER script)
   - Loads a neural encoder (BERT etc.) once and passes it to create_data
   - No entity_names or k args (DREQ sums entity embeddings, no query expansion)
   - Expects precomputed doc embeddings (run precompute_chunk_embs.py first)
@@ -34,19 +34,19 @@ import time
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Import shared logic from make_doc_ranking_data.py.
+# Import shared logic from make_doc_ranking_data_dreq.py.
 # Both scripts must live in the same directory.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MAKE_DATA_SCRIPT = os.path.join(SCRIPT_DIR, "make_doc_ranking_data.py")
+MAKE_DATA_SCRIPT = os.path.join(SCRIPT_DIR, "make_doc_ranking_data_dreq.py")
 
 if not os.path.exists(MAKE_DATA_SCRIPT):
-    print(f"[ERROR] make_doc_ranking_data.py not found at {MAKE_DATA_SCRIPT}")
-    print("  Place this script in the same directory as make_doc_ranking_data.py.")
+    print(f"[ERROR] make_doc_ranking_data_dreq.py not found at {MAKE_DATA_SCRIPT}")
+    print("  Place this script in the same directory as make_doc_ranking_data_dreq.py.")
     sys.exit(1)
 
 sys.path.insert(0, SCRIPT_DIR)
-from make_doc_ranking_data import (
+from make_doc_ranking_data_dreq import (
     load_docs,
     load_embeddings,
     load_queries,
@@ -243,6 +243,16 @@ def main():
 
     args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
 
+    # Warn if output name args are provided for splits that won't be run
+    name_split_map = [
+        (args.train_output_name,      'training',   '--train-output-name'),
+        (args.validation_output_name, 'validation', '--validation-output-name'),
+        (args.test_output_name,       'testing',    '--test-output-name'),
+    ]
+    for name, split, flag in name_split_map:
+        if name and split not in args.splits:
+            print(f'Warning: {flag} is set but "{split}" is not in --splits {args.splits} — it will be ignored.')
+
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
 
@@ -367,7 +377,7 @@ def main():
         out_fold = os.path.join(args.output_base, fold_dir)
         print(f"\n  {fold_dir}:")
         fold_total = 0
-        for split in ["training", "validation", "testing"]:
+        for split in args.splits:
             output_name = get_output_filename_for_split(split, args)
             f = os.path.join(out_fold, output_name)
             n = count_lines(f)
